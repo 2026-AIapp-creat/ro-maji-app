@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>タッチでピタッ！シール帳マッチング</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@500;700&display=swap');
+
+        body {
+            /* 視認性が高く優しい丸ゴシックを使用 */
+            font-family: 'UD Digi Kyokasho NP-R', 'M PLUS Rounded 1c', sans-serif;
+            background-color: #fdfbf7;
+            overscroll-behavior-y: none; /* スワイプでのリロード防止 */
+            touch-action: none; /* デフォルトのタッチアクションを無効化（ドラッグ用） */
+        }
+
+        .sticker-book {
+            background: linear-gradient(135deg, #fff9e6 0%, #fff0f0 100%);
+            box-shadow: 10px 10px 0px #ffe4e1, 0 0 15px rgba(0,0,0,0.1);
+            border: 4px solid #ffb6c1;
+            border-radius: 20px;
+            position: relative;
+        }
+
+        /* シール帳のリング風装飾 */
+        .ring {
+            width: 30px;
+            height: 10px;
+            background: #d3d3d3;
+            border: 2px solid #a9a9a9;
+            border-radius: 5px;
+            position: absolute;
+            left: -15px;
+            box-shadow: 2px 2px 2px rgba(0,0,0,0.2);
+        }
+
+        .draggable-item {
+            cursor: grab;
+            touch-action: none;
+            transition: transform 0.3s ease-out; /* 元に戻る時のアニメーション */
+            z-index: 10;
+        }
+
+        .draggable-item.dragging {
+            transition: none; /* ドラッグ中はアニメーションを無効化 */
+            z-index: 100;
+            cursor: grabbing;
+            filter: drop-shadow(0px 10px 10px rgba(0,0,0,0.2));
+            transform: scale(1.05);
+        }
+
+        .drop-zone {
+            border: 4px dashed #cbd5e1;
+            transition: all 0.3s ease;
+        }
+
+        .drop-zone.active {
+            border-color: #60a5fa;
+            background-color: #eff6ff;
+            transform: scale(1.02);
+        }
+
+        .drop-zone.matched {
+            border: 4px solid #4ade80;
+            background-color: #f0fdf4;
+            animation: pop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        /* 正解時のアニメーション */
+        @keyframes pop {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        /* キラキラエフェクト */
+        .sparkle {
+            position: absolute;
+            width: 20px;
+            height: 20px;
+            background: gold;
+            clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+            animation: sparkle-anim 1s forwards;
+            pointer-events: none;
+        }
+
+        @keyframes sparkle-anim {
+            0% { transform: scale(0) rotate(0deg); opacity: 1; }
+            50% { transform: scale(1.5) rotate(180deg); opacity: 1; }
+            100% { transform: scale(0) rotate(360deg); opacity: 0; }
+        }
+    </style>
+</head>
+<body class="h-screen w-screen flex flex-col items-center justify-center overflow-hidden">
+
+    <div class="w-full max-w-4xl h-full md:h-5/6 p-2 md:p-4 flex flex-col relative">
+        <!-- ヘッダー -->
+        <header class="text-center mb-4 relative">
+            <h1 class="text-2xl md:text-3xl font-bold text-gray-700 bg-white inline-block px-6 py-2 rounded-full shadow-sm border-2 border-pink-200">
+                ✨ シールを はろう ✨
+            </h1>
+            <!-- 先生用設定ボタン -->
+            <button onclick="openSettings()" class="absolute right-0 top-0 text-gray-400 hover:text-gray-600 p-2 text-2xl" title="単語リストの設定（先生用）">
+                ⚙️
+            </button>
+        </header>
+
+        <!-- ゲームエリア（シール帳） -->
+        <main id="game-board" class="sticker-book flex-1 flex flex-col md:flex-row p-4 md:p-8 gap-4 md:gap-8 relative overflow-hidden">
+            <!-- リング装飾 (CSSで追加) -->
+            <div class="ring top-[10%]"></div>
+            <div class="ring top-[30%]"></div>
+            <div class="ring top-[50%]"></div>
+            <div class="ring top-[70%]"></div>
+            <div class="ring top-[90%]"></div>
+
+            <!-- 左側：イラスト（ドロップゾーン） -->
+            <div class="flex-1 flex flex-col justify-around gap-4" id="drop-zones-container">
+                <!-- JavaScriptで動的に生成 -->
+            </div>
+
+            <!-- 右側：ローマ字（ドラッグするアイテム） -->
+            <div class="flex-1 flex flex-col justify-around gap-4 border-l-0 md:border-l-4 border-dashed border-pink-200 pl-0 md:pl-8" id="draggables-container">
+                <!-- JavaScriptで動的に生成 -->
+            </div>
+        </main>
+
+        <!-- クリア時のメッセージ＆次へボタン -->
+        <div id="clear-message" class="absolute inset-0 bg-white/80 backdrop-blur-sm hidden flex-col items-center justify-center z-50 rounded-2xl">
+            <h2 class="text-5xl md:text-7xl font-bold text-pink-500 mb-8 animate-bounce">たいへんよくできました！</h2>
+            <button onclick="initGame()" class="text-2xl font-bold bg-blue-500 text-white px-8 py-4 rounded-full shadow-lg hover:bg-blue-600 active:scale-95 transition-all">
+                つぎへすすむ ➔
+            </button>
+        </div>
+
+        <!-- 先生用：単語リスト作成モーダル -->
+        <div id="settings-modal" class="absolute inset-0 bg-black/50 hidden flex-col items-center justify-center z-[100] rounded-2xl p-4">
+            <div class="bg-white p-6 rounded-2xl w-full max-w-lg shadow-xl">
+                <h2 class="text-xl font-bold mb-4 text-gray-800">単語リストの作成（先生用）</h2>
+                
+                <!-- ローマ字表記の選択肢を追加 -->
+                <div class="mb-4">
+                    <label class="block text-sm font-bold text-gray-700 mb-2">ローマ字の表記</label>
+                    <div class="flex gap-4">
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="case-setting" value="lower" class="mr-2 w-5 h-5 text-pink-500" checked> 小文字 (例: inu)
+                        </label>
+                        <label class="flex items-center cursor-pointer">
+                            <input type="radio" name="case-setting" value="upper" class="mr-2 w-5 h-5 text-pink-500"> 大文字 (例: INU)
+                        </label>
+                    </div>
+                </div>
+
+                <p class="text-sm text-gray-600 mb-2">「ひらがな, ローマ字, 絵文字」の順で、カンマ(,)で区切って入力してください。※最低3つ必要です。</p>
+                <textarea id="words-input" class="w-full h-48 border-2 border-gray-300 rounded-lg p-3 mb-4 font-mono text-base" placeholder="いぬ, inu, 🐶&#10;ねこ, neko, 🐱"></textarea>
+                <div class="flex justify-end gap-4">
+                    <button onclick="closeSettings()" class="px-4 py-2 bg-gray-200 rounded-lg text-gray-800 font-bold hover:bg-gray-300">キャンセル</button>
+                    <button onclick="saveSettings()" class="px-4 py-2 bg-pink-500 rounded-lg text-white font-bold hover:bg-pink-600">保存してあそぶ</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // デフォルトの単語リスト（小文字のローマ字に変更）
+        let gameWords = [
+            { id: 'inu', romaji: 'inu', kana: 'いぬ', emoji: '🐶' },
+            { id: 'neko', romaji: 'neko', kana: 'ねこ', emoji: '🐱' },
+            { id: 'kuma', romaji: 'kuma', kana: 'くま', emoji: '🐻' },
+            { id: 'kani', romaji: 'kani', kana: 'かに', emoji: '🦀' },
+            { id: 'buta', romaji: 'buta', kana: 'ぶた', emoji: '🐷' },
+            { id: 'tori', romaji: 'tori', kana: 'とり', emoji: '🐔' }
+        ];
+
+        let romajiCase = 'lower'; // ローマ字の表記状態（'lower' または 'upper'）
+        let currentWords = [];
+        let matchedCount = 0;
+        let dragItem = null;
+        let initialX = 0, initialY = 0;
+        let startX = 0, startY = 0;
+
+        // オーディオコンテキスト（優しい正解音用）
+        let audioCtx;
+        function playSuccessSound() {
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sine';
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            
+            // キラリという優しい音
+            osc.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+            osc.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1); // A6
+            
+            gain.gain.setValueAtTime(0, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0.3, audioCtx.currentTime + 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+            
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.5);
+        }
+
+        // 音声合成（読み上げ）
+        function speak(text) {
+            if ('speechSynthesis' in window) {
+                // 発話中のものをキャンセル
+                window.speechSynthesis.cancel();
+                const uttr = new SpeechSynthesisUtterance(text);
+                uttr.lang = 'ja-JP';
+                uttr.rate = 0.9; // 少しゆっくり
+                uttr.pitch = 1.2; // 少し高めで親しみやすく
+                window.speechSynthesis.speak(uttr);
+            }
+        }
+
+        function initGame() {
+            document.getElementById('clear-message').style.display = 'none';
+            matchedCount = 0;
+
+            // 3つの単語をランダムに選ぶ
+            const shuffled = [...gameWords].sort(() => 0.5 - Math.random());
+            currentWords = shuffled.slice(0, 3);
+
+            const dropContainer = document.getElementById('drop-zones-container');
+            const dragContainer = document.getElementById('draggables-container');
+            
+            dropContainer.innerHTML = '';
+            dragContainer.innerHTML = '';
+
+            // ドロップゾーン（左側：イラストとひらがな）の生成
+            currentWords.forEach(word => {
+                const dropZone = document.createElement('div');
+                dropZone.className = 'drop-zone flex items-center justify-between p-4 bg-white rounded-2xl w-full max-w-sm mx-auto shadow-sm';
+                dropZone.dataset.id = word.id;
+                
+                // タップで音声を読み上げる
+                dropZone.onclick = () => speak(word.kana);
+
+                dropZone.innerHTML = `
+                    <div class="text-6xl md:text-7xl mr-4 pointer-events-none">${word.emoji}</div>
+                    <div class="text-3xl md:text-4xl font-bold text-gray-700 pointer-events-none">${word.kana}</div>
+                    <div class="empty-slot w-24 h-16 md:w-32 md:h-20 bg-gray-100 rounded-xl ml-4 border-2 border-dashed border-gray-300"></div>
+                `;
+                dropContainer.appendChild(dropZone);
+            });
+
+            // ドラッグアイテム（右側：ローマ字）の生成とシャッフル
+            const dragWords = [...currentWords].sort(() => 0.5 - Math.random());
+            dragWords.forEach(word => {
+                const draggable = document.createElement('div');
+                draggable.className = 'draggable-item bg-pink-100 border-4 border-pink-300 text-pink-700 font-bold text-4xl md:text-5xl p-4 md:p-6 rounded-2xl shadow-md flex items-center justify-center w-full max-w-xs mx-auto user-select-none';
+                draggable.dataset.id = word.id;
+                
+                // 選択された大文字/小文字設定を適用
+                const displayRomaji = romajiCase === 'upper' ? word.romaji.toUpperCase() : word.romaji.toLowerCase();
+                draggable.dataset.romaji = displayRomaji;
+                draggable.dataset.kana = word.kana;
+                draggable.innerText = displayRomaji;
+                
+                // ポインターイベントの登録（タッチ・マウス両対応）
+                draggable.addEventListener('pointerdown', handlePointerDown);
+                
+                dragContainer.appendChild(draggable);
+            });
+        }
+
+        function handlePointerDown(e) {
+            if (e.target.classList.contains('matched-item')) return; // 既にマッチしたものは動かさない
+            
+            dragItem = e.target;
+            
+            // タップ時に読み上げ
+            speak(dragItem.dataset.kana);
+
+            // 要素の現在の位置情報を取得（transformが適用されている場合をリセット）
+            dragItem.style.transition = 'none'; // ドラッグ中はアニメーションオフ
+            
+            // ページ上の絶対座標を取得して、ポインターの位置とのオフセットを計算
+            const rect = dragItem.getBoundingClientRect();
+            startX = e.clientX - rect.left;
+            startY = e.clientY - rect.top;
+
+            // 初期位置を記憶（失敗時に戻るため）
+            initialX = dragItem.getBoundingClientRect().left;
+            initialY = dragItem.getBoundingClientRect().top;
+
+            // `absolute`にして自由に動かせるようにする
+            // 元のコンテナ内でのレイアウトが崩れないようにプレースホルダーを作るのは複雑なので、
+            // Transformで移動させる方式を採用します。
+            
+            // Transformの開始座標を保存（0,0に戻すため）
+            dragItem.dataset.translateX = 0;
+            dragItem.dataset.translateY = 0;
+
+            dragItem.classList.add('dragging');
+            
+            // イベントリスナーをdocumentにアタッチして、画面外に外れても追従するようにする
+            document.addEventListener('pointermove', handlePointerMove);
+            document.addEventListener('pointerup', handlePointerUp);
+            document.addEventListener('pointercancel', handlePointerUp); // タッチキャンセル時の対応
+            
+            // ドラッグ中のデフォルト動作（スクロールなど）を防ぐ
+            e.preventDefault();
+        }
+
+        function handlePointerMove(e) {
+            if (!dragItem) return;
+            
+            // 移動量を計算してtransformで適用
+            const rect = dragItem.parentElement.getBoundingClientRect();
+            // 親要素基準での移動距離を計算
+            const moveX = e.clientX - initialX - startX;
+            const moveY = e.clientY - initialY - startY;
+
+            dragItem.style.transform = `translate(${moveX}px, ${moveY}px) scale(1.05)`;
+            dragItem.dataset.translateX = moveX;
+            dragItem.dataset.translateY = moveY;
+
+            // 重なっているドロップゾーンをハイライト
+            highlightDropZone(e.clientX, e.clientY);
+            
+            e.preventDefault();
+        }
+
+        function handlePointerUp(e) {
+            if (!dragItem) return;
+            
+            document.removeEventListener('pointermove', handlePointerMove);
+            document.removeEventListener('pointerup', handlePointerUp);
+            document.removeEventListener('pointercancel', handlePointerUp);
+
+            dragItem.classList.remove('dragging');
+            
+            // 重なり判定
+            const dropZone = getIntersectingDropZone(e.clientX, e.clientY);
+            clearHighlights();
+
+            if (dropZone && dropZone.dataset.id === dragItem.dataset.id) {
+                // --- 正解の場合 ---
+                handleMatch(dropZone, dragItem);
+            } else {
+                // --- 不正解（またはドロップゾーン外）の場合 ---
+                // 失敗感をなくすため、ブザーは鳴らさず、CSSトランジションでスッと元の位置へ
+                dragItem.style.transition = 'transform 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275)';
+                dragItem.style.transform = 'translate(0px, 0px)';
+            }
+
+            dragItem = null;
+        }
+
+        function highlightDropZone(x, y) {
+            clearHighlights();
+            const dropZone = getIntersectingDropZone(x, y);
+            if (dropZone && !dropZone.classList.contains('matched')) {
+                dropZone.classList.add('active');
+            }
+        }
+
+        function clearHighlights() {
+            document.querySelectorAll('.drop-zone').forEach(zone => {
+                zone.classList.remove('active');
+            });
+        }
+
+        function getIntersectingDropZone(x, y) {
+            // 指（ポインター）の位置にある要素を取得
+            // 隠れている要素も判定するため、ドロップゾーンの座標を計算して判定する
+            const dropZones = document.querySelectorAll('.drop-zone:not(.matched)');
+            for (let zone of dropZones) {
+                const rect = zone.getBoundingClientRect();
+                // ポインターがドロップゾーンの矩形内にあるかチェック
+                if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+                    return zone;
+                }
+            }
+            return null;
+        }
+
+        function handleMatch(dropZone, item) {
+            playSuccessSound();
+            speak(item.dataset.kana + "！"); // 正解時に元気よく発音
+            
+            dropZone.classList.add('matched');
+            
+            // 空の枠に要素をはめ込む演出
+            const emptySlot = dropZone.querySelector('.empty-slot');
+            emptySlot.style.display = 'none'; // 空枠を隠す
+            
+            // アイテムのスタイルを変更してドロップゾーン内に配置
+            item.style.transition = 'none';
+            item.style.transform = 'none';
+            item.classList.remove('draggable-item', 'bg-pink-100', 'border-pink-300');
+            item.classList.add('matched-item', 'bg-white', 'text-pink-600', 'shadow-none', 'border-none');
+            
+            // イベントを消して動かせなくする
+            item.removeEventListener('pointerdown', handlePointerDown);
+            
+            dropZone.appendChild(item);
+
+            // キラキラエフェクトの生成
+            createSparkles(dropZone);
+
+            matchedCount++;
+            if (matchedCount === 3) {
+                setTimeout(showClearMessage, 1000);
+            }
+        }
+
+        function createSparkles(element) {
+            const rect = element.getBoundingClientRect();
+            for(let i=0; i<5; i++) {
+                const sparkle = document.createElement('div');
+                sparkle.className = 'sparkle';
+                sparkle.style.left = (Math.random() * rect.width) + 'px';
+                sparkle.style.top = (Math.random() * rect.height) + 'px';
+                element.appendChild(sparkle);
+                
+                // アニメーション終了後に削除
+                setTimeout(() => {
+                    if (sparkle.parentNode) sparkle.parentNode.removeChild(sparkle);
+                }, 1000);
+            }
+        }
+
+        function showClearMessage() {
+            // 達成感のあるファンファーレ的な読み上げ
+            speak("たいへんよくできました！");
+            document.getElementById('clear-message').style.display = 'flex';
+        }
+
+        // --- 単語リスト作成・設定機能（先生用） ---
+        function openSettings() {
+            const textarea = document.getElementById('words-input');
+            // 現在の単語リストをテキストエリアに表示
+            textarea.value = gameWords.map(w => `${w.kana}, ${w.romaji}, ${w.emoji}`).join('\n');
+            
+            // ラジオボタンの選択状態を更新
+            const caseInput = document.querySelector(`input[name="case-setting"][value="${romajiCase}"]`);
+            if (caseInput) caseInput.checked = true;
+
+            document.getElementById('settings-modal').style.display = 'flex';
+        }
+
+        function closeSettings() {
+            document.getElementById('settings-modal').style.display = 'none';
+        }
+
+        function saveSettings() {
+            const textarea = document.getElementById('words-input');
+            const lines = textarea.value.split('\n');
+            const newWords = [];
+            
+            // 大文字・小文字の設定を取得して保存
+            const selectedCase = document.querySelector('input[name="case-setting"]:checked').value;
+            romajiCase = selectedCase;
+
+            lines.forEach((line, index) => {
+                const parts = line.split(',').map(s => s.trim());
+                // ひらがな, ローマ字, 絵文字の3要素がある行だけを抽出
+                if (parts.length >= 3 && parts[0] && parts[1]) {
+                    newWords.push({
+                        id: 'word' + index,
+                        kana: parts[0],
+                        romaji: parts[1].toLowerCase(), // 強制的に小文字にする
+                        emoji: parts[2]
+                    });
+                }
+            });
+
+            if (newWords.length >= 3) {
+                gameWords = newWords;
+                // ブラウザに保存して、リロードしても消えないようにする
+                localStorage.setItem('customMatchingWords', JSON.stringify(gameWords));
+                localStorage.setItem('customRomajiCase', romajiCase);
+                closeSettings();
+                initGame(); // 新しいリストでゲームを再スタート
+            } else {
+                alert('【エラー】単語は最低3つ以上入力してください。「ひらがな, ローマ字, 絵文字」の形式になっているか確認してください。');
+            }
+        }
+
+        function loadSavedWords() {
+            const saved = localStorage.getItem('customMatchingWords');
+            if (saved) {
+                try {
+                    gameWords = JSON.parse(saved);
+                } catch(e) {
+                    console.error("保存されたリストの読み込みに失敗しました", e);
+                }
+            }
+            
+            // 保存された大文字・小文字の設定を読み込み
+            const savedCase = localStorage.getItem('customRomajiCase');
+            if (savedCase) {
+                romajiCase = savedCase;
+            }
+        }
+
+        // 初期化実行（起動時に保存されたリストがあれば読み込む）
+        window.onload = () => {
+            loadSavedWords();
+            initGame();
+        };
+    </script>
+</body>
+</html>
